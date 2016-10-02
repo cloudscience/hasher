@@ -12,6 +12,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -26,11 +27,19 @@ type Fileinfo struct {
 	Filepath   string
 }
 
+// Constants for use in hash function
+const (
+	SHA512 = "sha512"
+	SHA256 = "sha256"
+	MD5    = "md5"
+)
+
 func main() {
 	if len(os.Args) == 0 {
 		fmt.Println("No arguments found")
 		os.Exit(255) // kills xarg from further processing
 	}
+	var hashes []Fileinfo
 	files := os.Args[1:] // chop of the program name itself from the list of files passed in via xargs
 	for file := range files {
 		infile, inerr := os.Open(files[file])
@@ -41,46 +50,37 @@ func main() {
 		// Build struct for file, fill it with info
 		var f Fileinfo
 		f.Filepath, f.Filename = filepath.Split(files[file])
-		f.MD5hash = getMD5(infile)
-		f.SHA256hash = getSHA256(infile)
-		f.SHA512hash = getSHA512(infile)
+		f.MD5hash = hasher(infile, MD5)
+		f.SHA256hash = hasher(infile, SHA256)
+		f.SHA512hash = hasher(infile, SHA512)
 
-		// Pretty print it as JSON
-		j, _ := json.MarshalIndent(f, "", "  ")
-		fmt.Println(string(j))
+		hashes = append(hashes, f)
 	}
+	// Pretty print it as JSON
+	j, _ := json.MarshalIndent(hashes, "", "  ")
+	fmt.Println(string(j))
 
 }
 
-func getMD5(fileptr *os.File) string {
+func hasher(fileptr *os.File, hashtype string) string {
 	// Make sure streaming file read is done from the beginning, every time.
 	_, err := fileptr.Seek(0, os.SEEK_SET)
 	if err != nil {
 		fmt.Println(err)
 	}
-	md5h := md5.New()
-	io.Copy(md5h, fileptr)
-	return hex.EncodeToString(md5h.Sum(nil))
-}
 
-func getSHA256(fileptr *os.File) string {
-	// Make sure streaming file read is done from the beginning, every time.
-	_, err := fileptr.Seek(0, os.SEEK_SET)
-	if err != nil {
-		fmt.Println(err)
+	var hasheng hash.Hash
+	switch hashtype {
+	case SHA512:
+		hasheng = sha512.New()
+	case SHA256:
+		hasheng = sha256.New()
+	case MD5:
+		hasheng = md5.New()
+	default:
+		panic("Wrong kind of hash function called.")
 	}
-	sha256hasher := sha256.New()
-	io.Copy(sha256hasher, fileptr)
-	return hex.EncodeToString(sha256hasher.Sum(nil))
-}
 
-func getSHA512(fileptr *os.File) string {
-	// Make sure streaming file read is done from the beginning, every time.
-	_, err := fileptr.Seek(0, os.SEEK_SET)
-	if err != nil {
-		fmt.Println(err)
-	}
-	sha512hasher := sha512.New()
-	io.Copy(sha512hasher, fileptr)
-	return hex.EncodeToString(sha512hasher.Sum(nil))
+	io.Copy(hasheng, fileptr)
+	return hex.EncodeToString(hasheng.Sum(nil))
 }
